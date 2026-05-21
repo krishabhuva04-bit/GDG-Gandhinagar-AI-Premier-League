@@ -56,6 +56,35 @@ export default function DashboardView({ telemetry, setTelemetry }: DashboardView
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
 
+  // Dynamic recommenders pre-computations
+  const gateEntries = Object.entries(telemetry.gateLatencies || {});
+  const fastestGate = gateEntries.length > 0
+    ? gateEntries.reduce((min, cur) => (cur[1] < min[1] ? cur : min), ["A", 99])
+    : ["A", 3.0];
+  const fastestGateName = fastestGate[0];
+  const fastestGateTime = fastestGate[1];
+
+  const leastBusyConcession = (telemetry.queuePredictions || []).reduce(
+    (min, cur) => (cur.waitTime < min.waitTime ? cur : min),
+    telemetry.queuePredictions?.[0] || { name: "Northeast Lobby Food Truck", waitTime: 5 }
+  );
+
+  const parkingEntries = Object.entries(telemetry.parkingStatus || {});
+  const leastBusyParking = parkingEntries.length > 0
+    ? parkingEntries.reduce((min, cur) => {
+        const curRatio = cur[1].filled / cur[1].capacity;
+        const minRatio = min[1].filled / min[1].capacity;
+        return curRatio < minRatio ? cur : min;
+      }, parkingEntries[0])
+    : ["westExpress", { filled: 1200, capacity: 3500, state: "NOMINAL" }];
+
+  const leastBusyParkingKey = leastBusyParking[0];
+  const leastBusyParkingLabel = leastBusyParkingKey === "northLot" ? "North Lot Landing" :
+                               leastBusyParkingKey === "southGarage" ? "South Multi-Levels" :
+                               leastBusyParkingKey === "vipEast" ? "VIP Dedicated East" :
+                               "West Express Link";
+  const leastBusyParkingOpenPct = Math.round(100 - (leastBusyParking[1].filled / leastBusyParking[1].capacity) * 100);
+
   // Dynamic simulation button: fluctuate live statistics randomly to prove actions work
   const handleSimulateFluctuations = () => {
     setIsLoading(true);
@@ -766,6 +795,177 @@ export default function DashboardView({ telemetry, setTelemetry }: DashboardView
             );
           })}
         </div>
+      </div>
+
+      {/* Dynamic Crowd Surge & Smart Fan Recommendations Columns */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        
+        {/* Module A: Live Crowd Surge Prediction Model */}
+        <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-5 relative overflow-hidden flex flex-col justify-between">
+          <div className="absolute right-0 top-0 h-40 w-40 bg-gradient-to-br from-neon-purple/5 to-transparent blur-2xl pointer-events-none"></div>
+          
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-sans font-bold text-lg text-white flex items-center gap-2">
+                <Flame className="w-5 h-5 text-rose-500 animate-pulse" />
+                <span>AI Crowd Surge Prediction Model</span>
+              </h3>
+              <span className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-400 text-[9px] font-mono font-bold border border-rose-500/25 animate-pulse">
+                PREDICTIVE AI ACTIVE
+              </span>
+            </div>
+            <p className="text-gray-400 text-xs font-mono">
+              Neural simulation model projecting pedestrian bottleneck and crowd turbulence indexes for the next 15 minutes.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 my-2">
+            <div className="p-4 bg-black/40 border border-white/5 rounded-2xl text-center flex flex-col justify-center">
+              <span className="text-[10px] text-gray-400 font-mono uppercase block">GLOBAL TURBULENCE WEIGHT</span>
+              <span className="text-2xl font-mono font-extrabold text-white mt-1">
+                <AnimatedCounter value={Math.round((telemetry.attendance / telemetry.maxCapacity) * 85 + (telemetry.activeIncidents.length * 5))} />%
+              </span>
+              <span className="text-[10px] text-rose-400 font-mono block mt-1">
+                {telemetry.attendance > 75000 ? "⚠️ SEVERE OVERLOAD POTENTIAL" : "● HIGH PEDESTRIAN PRESSURE"}
+              </span>
+            </div>
+
+            <div className="p-4 bg-black/40 border border-white/5 rounded-2xl text-center flex flex-col justify-center">
+              <span className="text-[10px] text-gray-400 font-mono uppercase block">CRITICAL OVERCROWD RISK</span>
+              <span className="text-2xl font-mono font-extrabold text-[#bc13fe] mt-1">
+                <AnimatedCounter value={telemetry.attendance > 78000 ? 92 : telemetry.attendance > 74000 ? 76 : 48} />%
+              </span>
+              <span className="text-[10px] text-purple-400 font-mono block mt-1">
+                Exponential Model Projections
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <span className="text-[10px] text-gray-400 font-mono tracking-wider uppercase block">HIGH-RISK ARENA CHOKEPOINTS:</span>
+            
+            {/* Gate C chokepoint */}
+            <div className="p-3 bg-white/5 border border-white/5 rounded-xl flex items-center justify-between text-xs font-mono">
+              <div className="flex items-center gap-2.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></div>
+                <span className="text-white font-bold">Gate C Entrance Lobby</span>
+              </div>
+              <div className="text-right">
+                <span className="text-red-400 font-bold block">94.2% Probability</span>
+                <span className="text-[10px] text-gray-400 block">Surge window: +5 mins</span>
+              </div>
+            </div>
+
+            {/* Level 2 Sect 214 */}
+            <div className="p-3 bg-white/5 border border-white/5 rounded-xl flex items-center justify-between text-xs font-mono font-semibold">
+              <div className="flex items-center gap-2.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></div>
+                <span className="text-white font-bold">Concourse Sec 214 Outer Ring</span>
+              </div>
+              <div className="text-right">
+                <span className="text-amber-400 font-bold block">
+                  <AnimatedCounter value={telemetry.activeIncidents.some(i => i.section.includes("214")) ? 82 : 45} />% Probability
+                </span>
+                <span className="text-[10px] text-gray-400 block">Surge window: +12 mins</span>
+              </div>
+            </div>
+
+            {/* VIP East Concourse */}
+            <div className="p-3 bg-white/5 border border-white/5 rounded-xl flex items-center justify-between text-xs font-mono font-semibold">
+              <div className="flex items-center gap-2.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                <span className="text-white font-medium">VIP East Concourse Deck</span>
+              </div>
+              <div className="text-right">
+                <span className="text-emerald-400 font-bold block">12.5% Probability</span>
+                <span className="text-[10px] text-gray-400 block">Surge window: STABLE NOMINAL</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Module B: Dynamic AI Fan Optimizer & Recommendations */}
+        <div className="glass-panel p-6 rounded-3xl border border-white/10 space-y-5 relative overflow-hidden flex flex-col justify-between">
+          <div className="absolute left-0 bottom-0 h-40 w-40 bg-gradient-to-tr from-cyan-500/5 to-transparent blur-2xl pointer-events-none"></div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-sans font-bold text-lg text-white flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-cyan-400 animate-pulse" />
+                <span>Smart Fan Recommendation Feed</span>
+              </h3>
+              <span className="px-2 py-0.5 rounded bg-cyan-400/10 text-cyan-400 text-[9px] font-mono font-bold border border-cyan-400/25">
+                DYNAMIC SIGNAL PATH: OPEN
+              </span>
+            </div>
+            <p className="text-gray-400 text-xs font-mono">
+              Automated spectator guidance directives formulated based on current lobby queue sizes and parking telemetry grids.
+            </p>
+          </div>
+
+          {/* Core Dynamic Recommenders */}
+          <div className="space-y-4 my-2">
+            
+            {/* 1. Best Gate Option */}
+            <div className="p-3.5 bg-black/45 border border-white/5 rounded-2xl space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-cyan-400 font-mono uppercase tracking-wider block font-bold">🚪 OPTIMAL INGRESS/EGRESS ACCESS</span>
+                <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[9px] font-mono font-bold">Fastest Response</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-mono">
+                <div>
+                  <span className="text-white font-extrabold text-sm block">
+                    Gate {fastestGateName} Bypass
+                  </span>
+                  <span className="text-gray-400 text-[10px]">Recommended over congested Gate C bottleneck corridors</span>
+                </div>
+                <div className="text-right text-emerald-400 font-bold font-mono">
+                  Wait: {fastestGateTime} mins
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Ideal Restroom / Concessions Stand */}
+            <div className="p-3.5 bg-black/45 border border-white/5 rounded-2xl space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-[#bc13fe] font-mono uppercase tracking-wider block font-bold">🍔 CONCESSIONS & DINING OPTIMIZER</span>
+                <span className="px-2 py-0.5 rounded bg-[#bc13fe]/10 text-purple-300 text-[9px] font-mono font-bold">Minimum Wait</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-mono">
+                <div>
+                  <span className="text-white font-extrabold text-sm block">
+                    {leastBusyConcession.name}
+                  </span>
+                  <span className="text-gray-400 text-[10px]">Real-time queue tracking matches express droid dispatching</span>
+                </div>
+                <div className="text-right text-purple-400 font-bold font-mono">
+                  Wait: {leastBusyConcession.waitTime} mins
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Parking Option */}
+            <div className="p-3.5 bg-black/45 border border-white/5 rounded-2xl space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] text-amber-500 font-mono uppercase tracking-wider block font-bold">🚘 HIGHWAY VARIABLE ROUTING TARGET</span>
+                <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 text-[9px] font-mono font-bold">Low Congestion Zone</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-mono">
+                <div>
+                  <span className="text-white font-extrabold text-sm block font-sans">
+                    {leastBusyParkingLabel}
+                  </span>
+                  <span className="text-gray-400 text-[10px]">Divert incoming motorists instantly to prevent ingress lockups</span>
+                </div>
+                <div className="text-right text-amber-400 font-bold font-mono">
+                  Open: {leastBusyParkingOpenPct}% slots
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
       </div>
 
       {/* Futuristic Occupancy Detail Bento Area for Parking Locations */}

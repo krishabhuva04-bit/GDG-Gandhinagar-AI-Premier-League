@@ -73,6 +73,15 @@ export default function App() {
   });
 
   const [syncStatus, setSyncStatus] = useState<"SYNCED" | "STANDALONE">("SYNCED");
+  const [toasts, setToasts] = useState<Array<{ id: string; title: string; message: string; severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" }>>([]);
+
+  const triggerToast = (title: string, message: string, severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" = "LOW") => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts((prev) => [...prev, { id, title, message, severity }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 6000);
+  };
 
   // Fetch initial telemetry from Server if available
   const fetchOperations = async () => {
@@ -80,17 +89,34 @@ export default function App() {
       const response = await fetch("/api/operations");
       if (response.ok) {
         const data = await response.json();
-        setTelemetry((prev) => ({
-          ...prev,
-          attendance: data.attendance !== undefined ? data.attendance : prev.attendance,
-          gateLatencies: data.gateLatencies || prev.gateLatencies,
-          activeIncidents: data.activeIncidents || prev.activeIncidents,
-          parkingStatus: data.parkingStatus || prev.parkingStatus,
-          evacuationLock: data.evacuationLock !== undefined ? data.evacuationLock : prev.evacuationLock,
-          fanSentiment: data.fanSentiment || prev.fanSentiment,
-          queuePredictions: data.queuePredictions || prev.queuePredictions,
-          aiRecommendations: data.aiRecommendations || prev.aiRecommendations
-        }));
+        
+        // Detect new incidents in real-time
+        setTelemetry((prev) => {
+          const prevIncidentIds = new Set(prev.activeIncidents.map(i => i.id));
+          const newIncidents = (data.activeIncidents || []).filter((i: any) => !prevIncidentIds.has(i.id));
+          
+          if (newIncidents.length > 0) {
+            newIncidents.forEach((i: any) => {
+              triggerToast(
+                `🚨 NEW ALARM: ${i.type.replaceAll("_", " ")}`,
+                `[${i.section}] ${i.description}`,
+                i.severity
+              );
+            });
+          }
+          
+          return {
+            ...prev,
+            attendance: data.attendance !== undefined ? data.attendance : prev.attendance,
+            gateLatencies: data.gateLatencies || prev.gateLatencies,
+            activeIncidents: data.activeIncidents || prev.activeIncidents,
+            parkingStatus: data.parkingStatus || prev.parkingStatus,
+            evacuationLock: data.evacuationLock !== undefined ? data.evacuationLock : prev.evacuationLock,
+            fanSentiment: data.fanSentiment || prev.fanSentiment,
+            queuePredictions: data.queuePredictions || prev.queuePredictions,
+            aiRecommendations: data.aiRecommendations || prev.aiRecommendations
+          };
+        });
         setSyncStatus("SYNCED");
       } else {
         setSyncStatus("STANDALONE");
@@ -103,9 +129,9 @@ export default function App() {
 
   useEffect(() => {
     fetchOperations();
-    const syncInterval = setInterval(fetchOperations, 10000); // sync state every 10s
+    const syncInterval = setInterval(fetchOperations, 3000); // sync state every 3s for fast dynamic updates
     return () => clearInterval(syncInterval);
-  }, []);
+  }, [telemetry.activeIncidents]);
 
   // Client-side simulation trigger for standalone fallback mode
   useEffect(() => {
@@ -163,6 +189,20 @@ export default function App() {
           if (nextSentiment.length > 20) nextSentiment.pop();
         }
 
+        // Randomly simulate a mock incident warning in client simulation
+        if (Math.random() > 0.82) {
+          setTimeout(() => {
+            const warningReservoir = [
+              { title: "⚠️ GATE C PRESSURE IN FLUX", msg: "Gate C sensor tracking severe pedestrian surge bottlenecks. Access lanes restricted.", severity: "HIGH" },
+              { title: "☕ DOUBLE ORDER SPIKE SEC-204", msg: "Mobile catering vendors deploying backup express kiosks inside Level 2 East Lobby.", severity: "MEDIUM" },
+              { title: "⚡ GRID OPTIMIZATION DIRECTIVE", msg: "Dome HVAC shifted to eco-cooling status. Exterior temperature reads optimal.", severity: "LOW" },
+              { title: "🔥 SAFETY DRILL ALERT", msg: "Response quad patrol dispatched for Section 106 fluid spill safety sweep.", severity: "MEDIUM" }
+            ];
+            const item = warningReservoir[Math.floor(Math.random() * warningReservoir.length)];
+            triggerToast(item.title, item.msg, item.severity as any);
+          }, 100);
+        }
+
         return {
           ...prev,
           attendance: nextAttendance,
@@ -199,6 +239,12 @@ export default function App() {
       activeIncidents: [newIncident, ...prev.activeIncidents]
     }));
 
+    triggerToast(
+      `🚨 DISPATCH SUCCESS: ${type.replaceAll("_", " ")}`,
+      `[${section}] Patrol squad response active.`,
+      severity
+    );
+
     // Server notify
     try {
       await fetch("/api/operations/incident", {
@@ -213,10 +259,19 @@ export default function App() {
 
   // Resolve / clear incident handle
   const handleClearIncident = async (id: string) => {
+    const target = telemetry.activeIncidents.find(i => i.id === id);
     setTelemetry((prev) => ({
       ...prev,
       activeIncidents: prev.activeIncidents.filter(i => i.id !== id)
     }));
+
+    if (target) {
+      triggerToast(
+        `✅ INCIDENT COMPLETED: ${target.type.replaceAll("_", " ")}`,
+        `[${target.section}] Successfully resolved by droids.`,
+        "LOW"
+      );
+    }
 
     try {
       await fetch("/api/operations/incident/clear", {
@@ -235,6 +290,15 @@ export default function App() {
       ...prev,
       activeIncidents: prev.activeIncidents.map(i => i.id === id ? { ...i, status } : i)
     }));
+
+    const target = telemetry.activeIncidents.find(i => i.id === id);
+    if (target) {
+      triggerToast(
+        `⚡ STATE DRIFT: ${target.type.replaceAll("_", " ")}`,
+        `Progress shifted to: ${status}`,
+        target.severity
+      );
+    }
 
     try {
       await fetch("/api/operations/incident/update", {
@@ -273,6 +337,12 @@ export default function App() {
       };
     });
 
+    triggerToast(
+      "⚠️ COGNITIVE OVERRIDE SYSTEM",
+      enabled ? "GLOBAL EMER GENCY EVAC DRILL ACTIVATED - WAYFINDING SIGNS ENGAGED" : "EVAC WATCH REMOVED. RETURNING NOMINAL PARAMETERS",
+      enabled ? "CRITICAL" : "LOW"
+    );
+
     try {
       await fetch("/api/operations/evacuate", {
         method: "POST",
@@ -291,6 +361,59 @@ export default function App() {
       
       {/* Cyber overlay elements */}
       <div className="fixed inset-0 cyber-grid pointer-events-none z-0"></div>
+
+      {/* Real-Time Floating Notification Toast Overlay */}
+      <div className="fixed top-22 right-6 z-[9999] space-y-3 pointer-events-none w-80 sm:w-96">
+        <AnimatePresence>
+          {toasts.map((t) => (
+            <motion.div
+              key={t.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9, filter: "blur(4px)" }}
+              animate={{ opacity: 1, x: 0, scale: 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, x: 50, scale: 0.9, y: -20, filter: "blur(4px)" }}
+              className={`pointer-events-auto p-4 rounded-xl border backdrop-blur-md shadow-2xl flex items-start gap-3 relative overflow-hidden bg-black/90 ${
+                t.severity === "CRITICAL" ? "border-red-500 shadow-red-500/10" :
+                t.severity === "HIGH" ? "border-orange-500 shadow-orange-500/10" :
+                t.severity === "MEDIUM" ? "border-amber-500 shadow-amber-500/10" :
+                "border-cyan-500 shadow-cyan-500/10"
+              }`}
+            >
+              {/* Pulsing glow line */}
+              <div className={`absolute top-0 left-0 w-1.5 h-full ${
+                t.severity === "CRITICAL" ? "bg-red-500 animate-pulse" :
+                t.severity === "HIGH" ? "bg-orange-500" :
+                t.severity === "MEDIUM" ? "bg-amber-500" :
+                "bg-cyan-400"
+              }`} />
+              
+              <div className="flex-grow space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className={`text-[10px] font-mono font-bold tracking-wider uppercase ${
+                    t.severity === "CRITICAL" ? "text-red-400 font-bold" :
+                    t.severity === "HIGH" ? "text-orange-400" :
+                    t.severity === "MEDIUM" ? "text-amber-400" :
+                    "text-cyan-400"
+                  }`}>
+                    {t.title}
+                  </span>
+                  <button 
+                    onClick={() => setToasts((prev) => prev.filter((p) => p.id !== t.id))}
+                    className="text-gray-500 hover:text-white text-xs font-mono select-none px-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <p className="text-white font-sans text-xs leading-relaxed font-semibold">
+                  {t.message}
+                </p>
+                <div className="text-[9px] text-gray-500 font-mono mt-1">
+                  Just Now • Live Operations Alert
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
 
       {/* Modern responsive navbar */}
       <Navbar 
