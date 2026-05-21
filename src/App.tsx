@@ -14,6 +14,8 @@ import {
   Info
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { doc, getDocFromServer, onSnapshot, setDoc } from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "./firebase";
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<PageId>("home");
@@ -74,7 +76,7 @@ export default function App() {
     securityStatus: "NORMAL"
   });
 
-  const [syncStatus, setSyncStatus] = useState<"SYNCED" | "STANDALONE">("SYNCED");
+  const [syncStatus, setSyncStatus] = useState<"FIREBASE" | "SYNCED" | "STANDALONE">("FIREBASE");
   const [toasts, setToasts] = useState<Array<{ id: string; title: string; message: string; severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" }>>([]);
 
   const triggerToast = (title: string, message: string, severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" = "LOW") => {
@@ -85,64 +87,115 @@ export default function App() {
     }, 6000);
   };
 
-  // Fetch initial telemetry from Server if available
-  const fetchOperations = async () => {
+  // Custom unified state-management wrapper with Firebase transactional persistence
+  const updateTelemetry = (updater: (prev: TelemetryData) => TelemetryData) => {
+    setTelemetry((prev) => {
+      const nextVal = updater(prev);
+      if (syncStatus === "FIREBASE") {
+        const docRef = doc(db, "telemetry", "current");
+        setDoc(docRef, nextVal).catch((err) => {
+          handleFirestoreError(err, OperationType.WRITE, "telemetry/current");
+        });
+      }
+      return nextVal;
+    });
+  };
+
+  // Fetch initial telemetry from REST server if available as a fallback
+  const fetchOperationsFallback = async () => {
+    if (syncStatus === "FIREBASE") return;
     try {
       const response = await fetch("/api/operations");
       if (response.ok) {
         const data = await response.json();
-        
-        // Detect new incidents in real-time
-        setTelemetry((prev) => {
-          const prevIncidentIds = new Set(prev.activeIncidents.map(i => i.id));
-          const newIncidents = (data.activeIncidents || []).filter((i: any) => !prevIncidentIds.has(i.id));
-          
-          if (newIncidents.length > 0) {
-            newIncidents.forEach((i: any) => {
-              triggerToast(
-                `🚨 NEW ALARM: ${i.type.replaceAll("_", " ")}`,
-                `[${i.section}] ${i.description}`,
-                i.severity
-              );
-            });
-          }
-          
-          return {
-            ...prev,
-            attendance: data.attendance !== undefined ? data.attendance : prev.attendance,
-            gateLatencies: data.gateLatencies || prev.gateLatencies,
-            activeIncidents: data.activeIncidents || prev.activeIncidents,
-            parkingStatus: data.parkingStatus || prev.parkingStatus,
-            evacuationLock: data.evacuationLock !== undefined ? data.evacuationLock : prev.evacuationLock,
-            fanSentiment: data.fanSentiment || prev.fanSentiment,
-            queuePredictions: data.queuePredictions || prev.queuePredictions,
-            aiRecommendations: data.aiRecommendations || prev.aiRecommendations,
-            washroomOccupancy: data.washroomOccupancy !== undefined ? data.washroomOccupancy : (prev.washroomOccupancy || 63),
-            securityStatus: data.securityStatus || prev.securityStatus || "NORMAL"
-          };
-        });
+        setTelemetry((prev) => ({
+          ...prev,
+          ...data
+        }));
         setSyncStatus("SYNCED");
       } else {
         setSyncStatus("STANDALONE");
       }
     } catch (e) {
-      console.warn("Backend API not reachable or static SPA mode active. Continuing with client simulated persistence: ", e);
+      console.warn("Rest API not reachable. Falling back to sandbox.", e);
       setSyncStatus("STANDALONE");
     }
   };
 
+  // Setup Firestore real-time listener updates
   useEffect(() => {
-    fetchOperations();
-    const syncInterval = setInterval(fetchOperations, 3000); // sync state every 3s for fast dynamic updates
-    return () => clearInterval(syncInterval);
-  }, [telemetry.activeIncidents]);
+    let unsubscribe: () => void;
 
-  // Client-side simulation trigger for standalone fallback mode
+    async function initFirestoreSync() {
+      const docRef = doc(db, "telemetry", "current");
+
+      // Validate connection to Firestore initially per requirement (getDocFromServer)
+      try {
+        await getDocFromServer(docRef);
+        console.log("Firestore telemetry connection tested and verified.");
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("the client is offline")) {
+          console.error("Please check your Firebase configuration. Client is offline.");
+        }
+      }
+
+      // Establish live onSnapshot listener with custom error handling callbacks
+      unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as TelemetryData;
+          setTelemetry((prev) => {
+            const prevIncidentIds = new Set(prev.activeIncidents.map(i => i.id));
+            const newIncidents = (data.activeIncidents || []).filter((i: any) => !prevIncidentIds.has(i.id));
+            
+            if (newIncidents.length > 0) {
+              newIncidents.forEach((i: any) => {
+                triggerToast(
+                  `🚨 CLOUD ALARM: ${i.type.replaceAll("_", " ")}`,
+                  `[${i.section}] ${i.description}`,
+                  i.severity
+                );
+              });
+            }
+            return data;
+          });
+          setSyncStatus("FIREBASE");
+        } else {
+          // If telemetry does not exist, bootstrap it in Firestore
+          console.log("No cloud telemetry doc found. Bootstrapping initial state...");
+          setDoc(docRef, telemetry)
+            .then(() => {
+              setSyncStatus("FIREBASE");
+            })
+            .catch((err) => {
+              handleFirestoreError(err, OperationType.WRITE, "telemetry/current");
+            });
+        }
+      }, (error) => {
+        // ALWAYS handle onSnapshot error callbacks per rules
+        handleFirestoreError(error, OperationType.GET, "telemetry/current");
+        setSyncStatus("STANDALONE");
+      });
+    }
+
+    initFirestoreSync();
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // Periodic REST server backup synchronizer
   useEffect(() => {
-    if (syncStatus !== "STANDALONE") return;
+    if (syncStatus === "FIREBASE") return;
+    fetchOperationsFallback();
+    const interval = setInterval(fetchOperationsFallback, 3000);
+    return () => clearInterval(interval);
+  }, [syncStatus]);
 
+  // Combined background telemetry drift simulation (keeps charts & dashboard alive)
+  useEffect(() => {
     const simInterval = setInterval(() => {
-      setTelemetry((prev) => {
+      updateTelemetry((prev) => {
         // Attendance fluctuation
         const delta = Math.floor((Math.random() - 0.48) * 110);
         const nextAttendance = Math.min(prev.maxCapacity, Math.max(68000, prev.attendance + delta));
@@ -193,7 +246,7 @@ export default function App() {
           if (nextSentiment.length > 20) nextSentiment.pop();
         }
 
-        // 5. Let parking drift as well in standalone mode
+        // Let parking drift
         const nextParkingStatus = { ...prev.parkingStatus };
         Object.keys(nextParkingStatus).forEach((key) => {
           const lot = nextParkingStatus[key as keyof ParkingStatus];
@@ -207,15 +260,15 @@ export default function App() {
           };
         });
 
-        // 6. Washroom occupancy drift in standalone mode
+        // Washroom occupancy drift
         const nextWashroom = Math.min(100, Math.max(10, (prev.washroomOccupancy || 63) + Math.floor((Math.random() - 0.5) * 6)));
 
-        // 7. Security style tracking based on standalone events
+        // Security level
         const hasHighAlert = prev.activeIncidents.some(i => i.severity === "HIGH" || i.severity === "CRITICAL");
         const nextSecurity = prev.evacuationLock || hasHighAlert ? "ALERT" : prev.activeIncidents.length > 2 ? "VIGILANT" : "NORMAL";
 
-        // Randomly simulate a mock incident warning in client simulation
-        if (Math.random() > 0.82) {
+        // Randomly simulate warning alerts
+        if (Math.random() > 0.85) {
           setTimeout(() => {
             const warningReservoir = [
               { title: "⚠️ GATE C PRESSURE IN FLUX", msg: "Gate C sensor tracking severe pedestrian surge bottlenecks. Access lanes restricted.", severity: "HIGH" },
@@ -244,7 +297,7 @@ export default function App() {
     return () => clearInterval(simInterval);
   }, [syncStatus]);
 
-  // Dispatch live incident handle (updates server API if possible, with client fallback)
+  // Dispatch live incident handle (writes to Firestore synchronously)
   const handleDispatchIncident = async (
     type: string, 
     section: string, 
@@ -261,8 +314,7 @@ export default function App() {
       timestamp: new Date().toISOString()
     };
 
-    // Client update
-    setTelemetry((prev) => ({
+    updateTelemetry((prev) => ({
       ...prev,
       activeIncidents: [newIncident, ...prev.activeIncidents]
     }));
@@ -273,7 +325,7 @@ export default function App() {
       severity
     );
 
-    // Server notify
+    // Notify REST server for standard fallback log
     try {
       await fetch("/api/operations/incident", {
         method: "POST",
@@ -281,14 +333,15 @@ export default function App() {
         body: JSON.stringify({ type, section, description, severity })
       });
     } catch (e) {
-      console.log("Offline local incident simulation fallback success.");
+      console.log("Offline local incident simulation fallback logged successfully.");
     }
   };
 
-  // Resolve / clear incident handle
+  // Resolve / clear incident handle (writes to Firestore synchronously)
   const handleClearIncident = async (id: string) => {
     const target = telemetry.activeIncidents.find(i => i.id === id);
-    setTelemetry((prev) => ({
+    
+    updateTelemetry((prev) => ({
       ...prev,
       activeIncidents: prev.activeIncidents.filter(i => i.id !== id)
     }));
@@ -308,13 +361,13 @@ export default function App() {
         body: JSON.stringify({ id })
       });
     } catch (err) {
-      console.log("Local incident removal succeeded.");
+      console.log("Local incident removal synchronized.");
     }
   };
 
-  // Update incident current status handle
+  // Update incident current status handle (writes to Firestore synchronously)
   const handleUpdateIncidentStatus = async (id: string, status: "DISPATCHED" | "IN_PROGRESS" | "RESOLVED") => {
-    setTelemetry((prev) => ({
+    updateTelemetry((prev) => ({
       ...prev,
       activeIncidents: prev.activeIncidents.map(i => i.id === id ? { ...i, status } : i)
     }));
@@ -335,13 +388,13 @@ export default function App() {
         body: JSON.stringify({ id, status })
       });
     } catch (err) {
-      console.log("Local incident state status modified.");
+      console.log("Local incident state status synced.");
     }
   };
 
-  // Evacuation lock toggle simulator trigger
+  // Evacuation lock toggle simulator trigger (writes to Firestore synchronously)
   const handleTriggerEvacuation = async (enabled: boolean) => {
-    setTelemetry((prev) => {
+    updateTelemetry((prev) => {
       let nextIncidents = [...prev.activeIncidents];
       if (enabled) {
         const evacIncident: Incident = {
@@ -367,7 +420,7 @@ export default function App() {
 
     triggerToast(
       "⚠️ COGNITIVE OVERRIDE SYSTEM",
-      enabled ? "GLOBAL EMER GENCY EVAC DRILL ACTIVATED - WAYFINDING SIGNS ENGAGED" : "EVAC WATCH REMOVED. RETURNING NOMINAL PARAMETERS",
+      enabled ? "GLOBAL EMERGENCY EVAC DRILL ACTIVATED - WAYFINDING SIGNS ENGAGED" : "EVAC WATCH REMOVED. RETURNING NOMINAL PARAMETERS",
       enabled ? "CRITICAL" : "LOW"
     );
 
@@ -378,7 +431,7 @@ export default function App() {
         body: JSON.stringify({ enabled })
       });
     } catch (err) {
-      console.log("Local evacuation state activated.");
+      console.log("Local evacuation state logged.");
     }
   };
 
@@ -461,8 +514,20 @@ export default function App() {
               <span className="text-[10px] uppercase font-bold tracking-widest text-[#00f0ff] bg-[#00f0ff]/10 border border-[#00f0ff]/25 px-2 py-0.5 rounded">
                 Live Operations Link
               </span>
-              <span className="text-[11px] text-gray-500 font-mono">
-                {syncStatus === "SYNCED" ? "● Telemetry Synchronized" : "⚠️ Offline Sandbox State"}
+              <span className="text-[11px] font-mono">
+                {syncStatus === "FIREBASE" ? (
+                  <span className="text-[#00f0ff] drop-shadow-[0_0_8px_rgba(0,240,255,0.4)] animate-pulse">
+                    ● Real-Time Cloud Synced
+                  </span>
+                ) : syncStatus === "SYNCED" ? (
+                  <span className="text-[#bc13fe]">
+                    ● Local Server Synchronized
+                  </span>
+                ) : (
+                  <span className="text-gray-500 font-sans">
+                    ⚠️ Offline Sandbox State
+                  </span>
+                )}
               </span>
             </div>
 
@@ -493,7 +558,7 @@ export default function App() {
                 {currentPage === "dashboard" && (
                   <DashboardView 
                     telemetry={telemetry} 
-                    setTelemetry={setTelemetry} 
+                    setTelemetry={updateTelemetry} 
                   />
                 )}
 
@@ -514,14 +579,14 @@ export default function App() {
                     onClearIncident={handleClearIncident}
                     onUpdateIncidentStatus={handleUpdateIncidentStatus}
                     onTriggerEvacuation={handleTriggerEvacuation}
-                    onRefreshData={fetchOperations}
+                    onRefreshData={fetchOperationsFallback}
                   />
                 )}
 
                 {currentPage === "admin" && (
                   <AdminView 
                     telemetry={telemetry} 
-                    setTelemetry={setTelemetry}
+                    setTelemetry={updateTelemetry}
                     onDispatchIncident={handleDispatchIncident}
                     onTriggerEvacuation={handleTriggerEvacuation}
                   />

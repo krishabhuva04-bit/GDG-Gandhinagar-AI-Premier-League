@@ -1,0 +1,29 @@
+{
+  "entities": {
+    "Telemetry": {
+      "title": "Telemetry",
+      "description": "Real-time stadium operational telemetry and telemetry analytics",
+      "type": "object",
+      "properties": {
+        "attendance": { "type": "integer" },
+        "maxCapacity": { "type": "integer" },
+        "gateLatencies": { "type": "object" },
+        "activeIncidents": { "type": "array" },
+        "parkingStatus": { "type": "object" },
+        "evacuationLock": { "type": "boolean" },
+        "fanSentiment": { "type": "array" },
+        "queuePredictions": { "type": "array" },
+        "aiRecommendations": { "type": "array" },
+        "washroomOccupancy": { "type": "integer" },
+        "securityStatus": { "type": "string" }
+      },
+      "required": ["attendance", "maxCapacity", "evacuationLock", "washroomOccupancy", "securityStatus"]
+    }
+  },
+  "firestore": {
+    "telemetry/{telemetryId}": {
+      "schema": "Telemetry",
+      "description": "Live state document for real-time stadium operations"
+    }
+  }
+}

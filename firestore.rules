@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTelemetry(data) {
+      return data.attendance is int 
+        && data.attendance >= 0 
+        && data.attendance <= data.maxCapacity
+        && data.maxCapacity is int 
+        && data.maxCapacity > 0
+        && data.evacuationLock is bool
+        && data.washroomOccupancy is int 
+        && data.washroomOccupancy >= 0 
+        && data.washroomOccupancy <= 100
+        && data.securityStatus is string 
+        && (data.securityStatus == 'NORMAL' || data.securityStatus == 'VIGILANT' || data.securityStatus == 'ALERT')
+        && data.keys().hasAll(['attendance', 'maxCapacity', 'evacuationLock', 'washroomOccupancy', 'securityStatus']);
+    }
+
+    // Telemetry operational matrix rule
+    match /telemetry/{telemetryId} {
+      allow read: if true; 
+      allow write: if isValidId(telemetryId) && isValidTelemetry(incoming());
+    }
+  }
+}
