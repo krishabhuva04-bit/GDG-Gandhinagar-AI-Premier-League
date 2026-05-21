@@ -1,0 +1,6 @@
+{
+  "name": "StadiumX AI",
+  "description": "AI-powered smart stadium operations platform for crowd management, navigation, emergency coordination, parking intelligence, and real-time analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
