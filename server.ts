@@ -66,6 +66,8 @@ const activeOperations: any = {
     westExpress: { capacity: 3500, filled: 1420, state: "OPEN" },
   },
   evacuationLock: false,
+  washroomOccupancy: 63,
+  securityStatus: "NORMAL",
   fanSentiment: [
     { id: "sent-1", user: "SpectatorX", text: "The stadium layout graphics are incredible. High contrast dome system!", sentiment: "POSITIVE", timestamp: "14:10" },
     { id: "sent-2", user: "Robbie_G", text: "Main entrance congestion is being managed beautifully. Good info on app.", sentiment: "POSITIVE", timestamp: "14:08" },
@@ -138,6 +140,53 @@ setInterval(() => {
     activeOperations.fanSentiment.unshift(newComment);
     if (activeOperations.fanSentiment.length > 20) {
       activeOperations.fanSentiment.pop();
+    }
+  }
+
+  // 5. Dynamic Parking spaces fluctuation
+  if (activeOperations.parkingStatus) {
+    Object.keys(activeOperations.parkingStatus).forEach((key) => {
+      const p = activeOperations.parkingStatus[key];
+      // Slow fluctuation rate (up to 15 cars filled or left)
+      const pDelta = Math.floor((Math.random() - 0.47) * 40);
+      p.filled = Math.min(p.capacity - 5, Math.max(100, p.filled + pDelta));
+      const ratio = p.filled / p.capacity;
+      p.state = ratio > 0.95 ? "CRITICAL" : ratio > 0.8 ? "HIGH" : ratio > 0.5 ? "STABLE" : "OPEN";
+    });
+  }
+
+  // 6. Washroom occupancy & security status updates
+  activeOperations.washroomOccupancy = Math.min(100, Math.max(10, (activeOperations.washroomOccupancy || 63) + Math.floor((Math.random() - 0.5) * 6)));
+  
+  const hasCriticalIncidents = activeOperations.activeIncidents.some((i: any) => i.severity === "HIGH" || i.severity === "CRITICAL");
+  activeOperations.securityStatus = activeOperations.evacuationLock || hasCriticalIncidents ? "ALERT" : activeOperations.activeIncidents.length > 2 ? "VIGILANT" : "NORMAL";
+
+  // 7. Occasionally trigger simulated active incidents (~9% chance every loop)
+  if (Math.random() > 0.91 && activeOperations.activeIncidents.length < 5 && !activeOperations.evacuationLock) {
+    const templates = [
+      { section: "Gate A Entry", type: "TICKET_GATE_MALFUNCTION", description: "Bypass ticket reader RFID latency. Technicians dispatched.", severity: "MEDIUM" },
+      { section: "Section 104 Main Deck", type: "DRONE_DEVIATION", description: "Food delivery flyer reporting stabilization drift. Support units notified.", severity: "LOW" },
+      { section: "Level 2 East Concourse", type: "THERMAL_DISCREPANCY", description: "HVAC cooling node 42 sensor fluctuation. Eco cycle active.", severity: "LOW" },
+      { section: "Concourse Sec 118", type: "MANDATORY_HAZARD", description: "Beverage spill reported in pedestrian access path. Dispatched cleaners.", severity: "MEDIUM" }
+    ];
+    const chosenIdx = Math.floor(Math.random() * templates.length);
+    const chosen = templates[chosenIdx];
+    activeOperations.activeIncidents.unshift({
+      id: `sim-${Date.now().toString().slice(-3)}`,
+      section: chosen.section,
+      type: chosen.type,
+      description: chosen.description,
+      status: "DISPATCHED",
+      severity: chosen.severity,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // 8. Occasionally auto-resolve incidents (~15% chance if > 1 exists)
+  if (Math.random() > 0.85 && activeOperations.activeIncidents.length > 1) {
+    const candidateIdx = activeOperations.activeIncidents.findIndex((i: any) => i.id !== "evac-alarm" && i.id !== "inc-102");
+    if (candidateIdx !== -1) {
+      activeOperations.activeIncidents.splice(candidateIdx, 1);
     }
   }
 }, 4000);

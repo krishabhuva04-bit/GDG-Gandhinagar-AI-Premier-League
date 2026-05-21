@@ -39,7 +39,10 @@ import {
   ChevronDown,
   ChevronUp,
   Sliders,
-  CheckCircle2
+  CheckCircle2,
+  Utensils,
+  Bath,
+  Shield
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { TelemetryData, AIRecommendation } from "../types";
@@ -84,6 +87,46 @@ export default function DashboardView({ telemetry, setTelemetry }: DashboardView
                                leastBusyParkingKey === "vipEast" ? "VIP Dedicated East" :
                                "West Express Link";
   const leastBusyParkingOpenPct = Math.round(100 - (leastBusyParking[1].filled / leastBusyParking[1].capacity) * 100);
+
+  // Dynamic calculated telemetry states according to user guidelines
+  const gateACrowd = Math.min(99, Math.max(10, Math.round(78 + ((telemetry.gateLatencies.A - 2.1) * 7))));
+  const gateBCrowd = Math.min(99, Math.max(10, Math.round(42 + ((telemetry.gateLatencies.B - 3.5) * 6))));
+  const foodCourtWait = Math.max(1, Math.round(9 + ((telemetry.queuePredictions[2]?.waitTime - 8 || 0) * 1)));
+  const parkingAvailable = Math.max(1, Math.round(134 + ((1420 - telemetry.parkingStatus.westExpress.filled) / 3)));
+  const washroomOccupancy = telemetry.washroomOccupancy || 63;
+  const securityStatus = telemetry.securityStatus || "NORMAL";
+
+  // Dynamic live activity log state
+  const [activityLogs, setActivityLogs] = useState<Array<{ id: string; time: string; msg: string; type: "SUCCESS" | "WARNING" | "INFO" | "SECURITY" }>>([
+    { id: "log-1", time: new Date(Date.now() - 15000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), msg: "Turnstiles at Gate A calibrated to optimal flow rate.", type: "SUCCESS" },
+    { id: "log-2", time: new Date(Date.now() - 11000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), msg: "West Express parking routing matrix fully verified.", type: "INFO" },
+    { id: "log-3", time: new Date(Date.now() - 7000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), msg: "Sensor grid telemetry sync established over secure MQTT bridge.", type: "SUCCESS" },
+    { id: "log-4", time: new Date(Date.now() - 3000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }), msg: "Security patrol drones shifted to sector scan mode.", type: "SECURITY" },
+  ]);
+
+  // Append logs on telemetry changes (auto-update simulation triggered)
+  React.useEffect(() => {
+    const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const logTemplates = [
+      { msg: `Gate A crowd buffer shifted. Throughput capacity: ${gateACrowd}% index.`, type: "INFO" },
+      { msg: `Gate B flow rate shifted to ${gateBCrowd}% capacity.`, type: "INFO" },
+      { msg: `Food Court queue predictions updated. Localized wait times at ${foodCourtWait} mins.`, type: "SUCCESS" },
+      { msg: `Parking grid available slots recalculated. Available: ${parkingAvailable} aggregate spaces.`, type: "SUCCESS" },
+      { msg: `Restroom telemetry update. Occupancy status at ${washroomOccupancy}%.`, type: "INFO" },
+      { msg: `Defensive network security state verified: Status ${securityStatus}.`, type: "SECURITY" },
+    ];
+    
+    const selected = logTemplates[Math.floor(Math.random() * logTemplates.length)];
+    setActivityLogs(prev => [
+      {
+        id: `log-${Date.now()}`,
+        time: currentTime,
+        msg: selected.msg,
+        type: selected.type as any
+      },
+      ...prev.slice(0, 15) // Keep last 15 elements
+    ]);
+  }, [telemetry]);
 
   // Dynamic simulation button: fluctuate live statistics randomly to prove actions work
   const handleSimulateFluctuations = () => {
@@ -295,6 +338,271 @@ export default function DashboardView({ telemetry, setTelemetry }: DashboardView
             <span>{isLoading ? "CALIBRATING IoT NODES..." : "SIMULATE COGNITIVE FLUX"}</span>
           </span>
         </button>
+      </div>
+
+      {/* Real-time IoT Gateway Operations Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8" id="iot-telemetry-gateway">
+        {/* Left Side: 6 IoT Telemetry Micro Cells */}
+        <div className="xl:col-span-2 glass-panel p-6 rounded-3xl border border-white/10 space-y-6 relative overflow-hidden flex flex-col justify-between shadow-[0_0_30px_rgba(0,240,255,0.03)]">
+          <div className="absolute top-0 right-0 h-44 w-44 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-cyan-500/5 via-transparent to-transparent pointer-events-none"></div>
+          
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/5 pb-4">
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="h-2 w-2 bg-[#00f0ff] rounded-full animate-ping"></span>
+                <span className="h-2 w-2 bg-[#00f0ff] rounded-full absolute"></span>
+                <h3 className="font-sans font-bold text-lg text-white">IoT Live Gate & Operational Matrix</h3>
+              </div>
+              <p className="text-gray-400 text-xs font-mono mt-0.5">Physical sensor array monitors matching target digital twin coordinates</p>
+            </div>
+            <div className="flex items-center space-x-2 text-[10px] font-mono text-cyan-400 bg-cyan-400/10 border border-cyan-400/20 px-2.5 py-1 rounded-full animate-pulse self-start sm:self-auto">
+              <span>ACTIVE BRIDGE REFRESH: 3.5S</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {/* Card 1: Gate A Crowd */}
+            <motion.div 
+              layoutId="sensor-gate-a"
+              whileHover={{ y: -3, borderColor: "rgba(0,240,255,0.3)" }}
+              className="p-4 bg-cyber-dark/40 border border-white/5 rounded-2xl relative overflow-hidden group transition duration-300"
+            >
+              <div className="flex justify-between items-start text-xs font-mono">
+                <span className="text-gray-500 uppercase tracking-wider">Gate A Entrance</span>
+                <TrendingUp className="w-3.5 h-3.5 text-amber-500" />
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between">
+                <span className="text-2xl font-mono font-bold text-white">
+                  <AnimatedCounter value={gateACrowd} suffix="%" />
+                </span>
+                <span className="text-[10px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                  HEAVY
+                </span>
+              </div>
+              <div className="w-full bg-gray-900 h-1.5 rounded-full mt-3 overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${gateACrowd}%` }}
+                  transition={{ type: "spring", stiffness: 100 }}
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 h-full rounded-full"
+                ></motion.div>
+              </div>
+            </motion.div>
+
+            {/* Card 2: Gate B Crowd */}
+            <motion.div 
+              layoutId="sensor-gate-b"
+              whileHover={{ y: -3, borderColor: "rgba(0,240,255,0.3)" }}
+              className="p-4 bg-cyber-dark/40 border border-white/5 rounded-2xl relative overflow-hidden group transition duration-300"
+            >
+              <div className="flex justify-between items-start text-xs font-mono">
+                <span className="text-gray-500 uppercase tracking-wider">Gate B Entrance</span>
+                <TrendingDown className="w-3.5 h-3.5 text-emerald-400" />
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between">
+                <span className="text-2xl font-mono font-bold text-white">
+                  <AnimatedCounter value={gateBCrowd} suffix="%" />
+                </span>
+                <span className="text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded">
+                  MODERATE
+                </span>
+              </div>
+              <div className="w-full bg-gray-900 h-1.5 rounded-full mt-3 overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${gateBCrowd}%` }}
+                  transition={{ type: "spring", stiffness: 100 }}
+                  className="bg-gradient-to-r from-emerald-500 to-cyan-500 h-full rounded-full"
+                ></motion.div>
+              </div>
+            </motion.div>
+
+            {/* Card 3: Food Court Wait */}
+            <motion.div 
+              layoutId="sensor-food-court"
+              whileHover={{ y: -3, borderColor: "rgba(0,240,255,0.3)" }}
+              className="p-4 bg-cyber-dark/40 border border-white/5 rounded-2xl relative overflow-hidden group transition duration-300"
+            >
+              <div className="flex justify-between items-start text-xs font-mono">
+                <span className="text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <Utensils className="w-3 h-3 text-cyan-400" />
+                  <span>Food Court Wait</span>
+                </span>
+                <Clock className="w-3.5 h-3.5 text-yellow-400 animate-pulse" />
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between">
+                <span className="text-2xl font-mono font-bold text-white">
+                  <AnimatedCounter value={foodCourtWait} suffix=" mins" />
+                </span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                  foodCourtWait > 12 ? "bg-rose-500/10 text-rose-400 border border-rose-500/20" : "bg-cyan-500/10 text-cyan-400 border border-cyan-400/20"
+                }`}>
+                  {foodCourtWait > 12 ? "CONGESTED" : "STEADY"}
+                </span>
+              </div>
+              <div className="w-full bg-gray-900 h-1.5 rounded-full mt-3 overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, foodCourtWait * 6)}%` }}
+                  transition={{ type: "spring", stiffness: 100 }}
+                  className="bg-yellow-500 h-full rounded-full"
+                ></motion.div>
+              </div>
+            </motion.div>
+
+            {/* Card 4: Parking Available */}
+            <motion.div 
+              layoutId="sensor-parking"
+              whileHover={{ y: -3, borderColor: "rgba(0,240,255,0.3)" }}
+              className="p-4 bg-cyber-dark/40 border border-white/5 rounded-2xl relative overflow-hidden group transition duration-300"
+            >
+              <div className="flex justify-between items-start text-xs font-mono">
+                <span className="text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <Car className="w-3 h-3 text-cyan-400" />
+                  <span>Available Parking</span>
+                </span>
+                <TrendingUp className="w-3.5 h-3.5 text-[#00f0ff]" />
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between">
+                <span className="text-2xl font-mono font-bold text-white">
+                  <AnimatedCounter value={parkingAvailable} />
+                  <span className="text-[10px] text-gray-500 ml-1 font-sans">spots</span>
+                </span>
+                <span className="text-[10px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-400/20 px-1.5 py-0.5 rounded">
+                  OPEN
+                </span>
+              </div>
+              <div className="w-full bg-gray-900 h-1.5 rounded-full mt-3 overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, (parkingAvailable / 200) * 100)}%` }}
+                  transition={{ type: "spring", stiffness: 100 }}
+                  className="bg-[#00f0ff] h-full rounded-full"
+                ></motion.div>
+              </div>
+            </motion.div>
+
+            {/* Card 5: Washroom Occupancy */}
+            <motion.div 
+              layoutId="sensor-washroom"
+              whileHover={{ y: -3, borderColor: "rgba(0,240,255,0.3)" }}
+              className="p-4 bg-cyber-dark/40 border border-white/5 rounded-2xl relative overflow-hidden group transition duration-300"
+            >
+              <div className="flex justify-between items-start text-[11px] font-mono">
+                <span className="text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <Bath className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Washroom Occupancy</span>
+                </span>
+                <TrendingDown className="w-3.5 h-3.5 text-violet-400" />
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between">
+                <span className="text-2xl font-mono font-bold text-white">
+                  <AnimatedCounter value={washroomOccupancy} suffix="%" />
+                </span>
+                <span className="text-[10px] font-mono bg-[#bc13fe]/10 text-[#bc13fe] border border-[#bc13fe]/20 px-1.5 py-0.5 rounded">
+                  {washroomOccupancy > 75 ? "CRITICAL" : "STABLE"}
+                </span>
+              </div>
+              <div className="w-full bg-gray-900 h-1.5 rounded-full mt-3 overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${washroomOccupancy}%` }}
+                  transition={{ type: "spring", stiffness: 100 }}
+                  className="bg-gradient-to-r from-[#bc13fe] to-indigo-500 h-full rounded-full"
+                ></motion.div>
+              </div>
+            </motion.div>
+
+            {/* Card 6: Security Status */}
+            <motion.div 
+              layoutId="sensor-security"
+              whileHover={{ y: -3, borderColor: "rgba(0,240,255,0.3)" }}
+              className="p-4 bg-cyber-dark/40 border border-white/5 rounded-2xl relative overflow-hidden group transition duration-300"
+            >
+              <div className="flex justify-between items-start text-xs font-mono">
+                <span className="text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <Shield className="w-3 h-3 text-cyan-400" />
+                  <span>Security Status</span>
+                </span>
+                <span className={`w-2 h-2 rounded-full absolute right-4 top-4 ${
+                  securityStatus === "ALERT" ? "bg-red-500 animate-ping" : securityStatus === "VIGILANT" ? "bg-yellow-500 animate-pulse" : "bg-emerald-500 animate-pulse"
+                }`}></span>
+              </div>
+              <div className="mt-2.5 flex items-baseline justify-between">
+                <span className={`text-xl font-mono font-bold uppercase ${
+                  securityStatus === "ALERT" ? "text-red-400 animate-pulse" : securityStatus === "VIGILANT" ? "text-yellow-400" : "text-white"
+                }`}>
+                  {securityStatus}
+                </span>
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded uppercase font-bold ${
+                  securityStatus === "ALERT" ? "bg-red-500/20 text-red-400 border border-red-500/30" :
+                  securityStatus === "VIGILANT" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30" :
+                  "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                }`}>
+                  {securityStatus === "ALERT" ? "TACTICAL" : securityStatus === "VIGILANT" ? "HIGH GUARD" : "OPTIMAL"}
+                </span>
+              </div>
+              <div className="w-full bg-gray-900 h-1.5 rounded-full mt-3 overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: securityStatus === "ALERT" ? 100 : securityStatus === "VIGILANT" ? 65 : 30 }}
+                  transition={{ type: "spring", stiffness: 100 }}
+                  className={`h-full rounded-full ${
+                    securityStatus === "ALERT" ? "bg-red-500" : securityStatus === "VIGILANT" ? "bg-yellow-500" : "bg-emerald-500"
+                  }`}
+                ></motion.div>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+
+        {/* Right Side: Log Stream */}
+        <div className="xl:col-span-1 glass-panel p-6 rounded-3xl border border-white/10 flex flex-col justify-between shadow-[0_0_30px_rgba(0,240,255,0.02)]">
+          <div className="flex items-center justify-between border-b border-white/5 pb-4">
+            <div className="flex items-center space-x-2">
+              <span className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+              <span className="font-sans font-bold text-base text-white">Live Activity Stream</span>
+            </div>
+            <span className="text-[9px] font-mono text-gray-500 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-400">MONITOR BRIDGE ACTIVE</span>
+          </div>
+
+          {/* Logs feed with AnimatePresence */}
+          <div className="my-4 h-56 overflow-y-auto pr-1 scrollbar-thin space-y-2.5 flex flex-col justify-start">
+            <AnimatePresence initial={false}>
+              {activityLogs.map((log) => {
+                const borderColour = log.type === "SUCCESS" ? "border-emerald-500/20 bg-emerald-950/5" :
+                                     log.type === "WARNING" ? "border-amber-500/20 bg-amber-950/5" :
+                                     log.type === "SECURITY" ? "border-red-500/20 bg-red-950/5" : "border-white/5 bg-white/[0.01]";
+                const textColour = log.type === "SUCCESS" ? "text-emerald-400" :
+                                   log.type === "WARNING" ? "text-amber-400" :
+                                   log.type === "SECURITY" ? "text-red-400" : "text-cyan-400";
+                return (
+                  <motion.div
+                    key={log.id}
+                    initial={{ opacity: 0, scale: 0.95, y: -8 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ type: "spring", stiffness: 150, damping: 15 }}
+                    className={`p-2.5 rounded-xl border ${borderColour} text-[10px] font-mono leading-relaxed`}
+                  >
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[9px] text-gray-500 font-bold">{log.time}</span>
+                      <span className={`text-[8px] tracking-wider font-extrabold px-1 rounded ${textColour} bg-white/[0.04] uppercase`}>
+                        {log.type}
+                      </span>
+                    </div>
+                    <div className="text-gray-300">{log.msg}</div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+
+          <div className="border-t border-white/5 pt-3.5 flex items-center justify-between text-[10px] font-mono text-gray-500">
+            <span>Grid state: SECURE TLS 1.3</span>
+            <span>Logs: {activityLogs.length} stream buffer</span>
+          </div>
+        </div>
       </div>
 
       {/* Futuristic Bento Analytics Grid with beautiful glowing hovers */}

@@ -60,5 +60,7 @@ export interface TelemetryData {
   fanSentiment: SentimentComment[];
   queuePredictions: QueuePrediction[];
   aiRecommendations: AIRecommendation[];
+  washroomOccupancy: number;
+  securityStatus: "NORMAL" | "VIGILANT" | "ALERT";
 }
 

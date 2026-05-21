@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { PageId, TelemetryData, Incident } from "./types";
+import { PageId, TelemetryData, Incident, ParkingStatus } from "./types";
 import Navbar from "./components/Navbar";
 import HomeView from "./components/HomeView";
 import DashboardView from "./components/DashboardView";
@@ -69,7 +69,9 @@ export default function App() {
       { id: "rec-2", title: "Route Crowds to Gate B Bypass", category: "CROWD", description: "Gate C experiencing 6.5 minutes check queues. Synchronize digital wayfinding signage around lower tier to advise Gate B.", impact: "Reduces congestion by up to 35%", severity: "HIGH", resolved: false },
       { id: "rec-3", title: "Neutralize Spill at Level 2 Sect 214", category: "SAFETY", description: "Slick floor hazard detected near exit gates. Active sweep droids dispatched, manual security sweep advised to seal perimeter.", impact: "Limits physical arena liability counts", severity: "MEDIUM", resolved: false },
       { id: "rec-4", title: "Express Buffet Deployment", category: "CONCESSIONS", description: "Double order densities tracked inside Northeast Lobby. Shift mobile support vendor droids to Express Checkout modes.", impact: "Cuts localized dining wait times by 4 mins", severity: "MEDIUM", resolved: false }
-    ]
+    ],
+    washroomOccupancy: 63,
+    securityStatus: "NORMAL"
   });
 
   const [syncStatus, setSyncStatus] = useState<"SYNCED" | "STANDALONE">("SYNCED");
@@ -114,7 +116,9 @@ export default function App() {
             evacuationLock: data.evacuationLock !== undefined ? data.evacuationLock : prev.evacuationLock,
             fanSentiment: data.fanSentiment || prev.fanSentiment,
             queuePredictions: data.queuePredictions || prev.queuePredictions,
-            aiRecommendations: data.aiRecommendations || prev.aiRecommendations
+            aiRecommendations: data.aiRecommendations || prev.aiRecommendations,
+            washroomOccupancy: data.washroomOccupancy !== undefined ? data.washroomOccupancy : (prev.washroomOccupancy || 63),
+            securityStatus: data.securityStatus || prev.securityStatus || "NORMAL"
           };
         });
         setSyncStatus("SYNCED");
@@ -189,6 +193,27 @@ export default function App() {
           if (nextSentiment.length > 20) nextSentiment.pop();
         }
 
+        // 5. Let parking drift as well in standalone mode
+        const nextParkingStatus = { ...prev.parkingStatus };
+        Object.keys(nextParkingStatus).forEach((key) => {
+          const lot = nextParkingStatus[key as keyof ParkingStatus];
+          const pDelta = Math.floor((Math.random() - 0.47) * 40);
+          const nextFilled = Math.min(lot.capacity - 5, Math.max(100, lot.filled + pDelta));
+          const ratio = nextFilled / lot.capacity;
+          nextParkingStatus[key as keyof ParkingStatus] = {
+            ...lot,
+            filled: nextFilled,
+            state: ratio > 0.95 ? "CRITICAL" : ratio > 0.82 ? "HIGH" : ratio > 0.5 ? "STABLE" : "OPEN"
+          };
+        });
+
+        // 6. Washroom occupancy drift in standalone mode
+        const nextWashroom = Math.min(100, Math.max(10, (prev.washroomOccupancy || 63) + Math.floor((Math.random() - 0.5) * 6)));
+
+        // 7. Security style tracking based on standalone events
+        const hasHighAlert = prev.activeIncidents.some(i => i.severity === "HIGH" || i.severity === "CRITICAL");
+        const nextSecurity = prev.evacuationLock || hasHighAlert ? "ALERT" : prev.activeIncidents.length > 2 ? "VIGILANT" : "NORMAL";
+
         // Randomly simulate a mock incident warning in client simulation
         if (Math.random() > 0.82) {
           setTimeout(() => {
@@ -208,7 +233,10 @@ export default function App() {
           attendance: nextAttendance,
           gateLatencies: nextGates,
           queuePredictions: nextQueuePr,
-          fanSentiment: nextSentiment
+          fanSentiment: nextSentiment,
+          parkingStatus: nextParkingStatus,
+          washroomOccupancy: nextWashroom,
+          securityStatus: nextSecurity
         };
       });
     }, 4000);
