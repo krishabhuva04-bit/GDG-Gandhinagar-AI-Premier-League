@@ -570,7 +570,7 @@ export default function App() {
                 )}
 
                 {currentPage === "assistant" && (
-                  <AssistantView />
+                  <AssistantView telemetry={telemetry} />
                 )}
 
                 {currentPage === "emergency" && (

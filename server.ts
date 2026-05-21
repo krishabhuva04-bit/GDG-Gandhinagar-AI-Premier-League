@@ -275,74 +275,132 @@ app.post("/api/operations/evacuate", (req, res) => {
 });
 
 // AI Assistant Chat Route
+function buildSystemInstruction(telemetry: any) {
+  // Extract info safely
+  const attendance = telemetry?.attendance ?? 76420;
+  const maxCapacity = telemetry?.maxCapacity ?? 80000;
+  const occupancyRate = ((attendance / maxCapacity) * 100).toFixed(1);
+  const gateLatencies = telemetry?.gateLatencies ?? { A: 2.1, B: 3.5, C: 6.5, D: 1.8, E: 2.4, F: 4.0 };
+  const washroomOccupancy = telemetry?.washroomOccupancy ?? 63;
+  const securityStatus = telemetry?.securityStatus ?? "NORMAL";
+  const evacuationLock = telemetry?.evacuationLock ?? false;
+  
+  // Format incidents
+  const incidents = telemetry?.activeIncidents || [];
+  const formattedIncidents = incidents.length > 0 
+    ? incidents.map((inc: any, index: number) => `  ${index + 1}. [${inc.section}] ${inc.type}: ${inc.description} (Severity: ${inc.severity || "LOW"}, Status: ${inc.status})`).join("\n")
+    : "  No active operational incidents listed.";
+
+  // Format parking
+  const parking = telemetry?.parkingStatus || {};
+  const formattedParking = Object.entries(parking).map(([key, value]: [string, any]) => {
+    const lotName = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+    return `  - ${lotName}: ${value.filled}/${value.capacity} filled (${((value.filled/value.capacity)*100).toFixed(1)}% capacity, State: ${value.state})`;
+  }).join("\n");
+
+  // Format queue predictions
+  const queues = telemetry?.queuePredictions || [];
+  const formattedQueues = queues.length > 0
+    ? queues.map((q: any) => `  - ${q.name}: ${q.currentQueue} inline, wait: ${q.waitTime} mins (Trend: ${q.trend})`).join("\n")
+    : "  - Nominal queue distribution.";
+
+  return `
+You are StadiumX AI, the state-of-the-art operant artificial intelligence powering StadiumX—an 80,000-seat futuristic mega-arena.
+You speak as a futuristic command intelligence: cold, highly articulate, secure, supportive, and perfectly optimized for real-time responses.
+
+Statically Defined Food Stalls Inside StadiumX:
+- Mega-Bite Burgers: Sector 108 Main Deck. Highlights: Neon-burgers and custom fries. (Current density matches high concourse crowd. Line wait: ~12 mins).
+- Gridiron Taco Hub: Sector 214 Lower Bowl. Highlights: Cyber-tacos and double loaded nachos. (Moderate crowd. Line wait: ~6 mins).
+- Noodle Nexus: Sector 115 Main Deck. Highlights: Synthetic premium ramen bowls and matcha bubble teas. (Low crowd. Line wait: ~2 mins). Recommended for quick dining.
+- Slick-Slice Pizza: Section 301 Upper Deck. Highlights: Giant wood-fired premium slices. (Low crowd. Line wait: ~3 mins).
+- Pixel Donuts: Gate A Concourse. Highlights: Hot glaze cyber-donuts and premium nitro cold brew coffees. (High crowd. Line wait: ~10 mins).
+
+CURRENT REAL-TIME CONTEXT TELEMETRY:
+- GENERAL ATTENDANCE: ${attendance.toLocaleString()} of ${maxCapacity.toLocaleString()} seats filled (${occupancyRate}% seat density)
+- SECURITY STATE LEVEL: ${securityStatus}
+- SYSTEM EVACUATION DRILL LOCK: ${evacuationLock ? "ACTIVE (SIMULATED EMERGENCY TRIGGERED - INITIATE FULL REDIRECT DIRECTIVES CURRENTLY IN PLAN)" : "INACTIVE / NOMINAL"}
+- WASHROOM OCCUPANCY INDEX: ${washroomOccupancy}% capacity filled overall
+
+ACCESS GATES FEED (REAL-TIME LATENCY IN MINUTES):
+${Object.entries(gateLatencies).map(([gate, value]) => `  - Gate ${gate}: ${value} mins wait`).join("\n")}
+
+PARKING SECTORS STATS:
+${formattedParking}
+
+REAL-TIME CROWD QUEUE STATIONS:
+${formattedQueues}
+
+ACTIVE INCIDENTS GRID:
+${formattedIncidents}
+
+OPERATIONAL RESPONSE DIRECTIVES:
+1. Speak in your futuristic StadiumX AI system command persona. Frame responses with elegant, technical markdown styling.
+2. Formulate highly actionable responses. Recommend real-time solutions, emergency rerouting, wayfinding instructions, and food stalls based on current congestion.
+3. Be highly precise. Quote the actual numbers/names from the telemetry parameters to justify your answers.
+4. When predicting crowd congestion, look at real-time attendance, gate latencies (e.g. Gate C bottleneck), and queue metrics. Suggest alternative routes (e.g. bypass Gate C to Gate A or B).
+5. Suggest optimal parking zones based on filled capacities (recommend West Express if North/VIP lots are near capacity).
+6. Respect the emergency state. If evacuationLock is ACTIVE, issue clear evacuation scripts, tell people to stay calm, avoid bottlenecks, and quote alternative gates.
+`;
+}
+
 app.post("/api/chat", async (req, res) => {
-  const { message, chatHistory } = req.body;
+  const { message, chatHistory, telemetry } = req.body;
   if (!message) {
     return res.status(400).json({ error: "Message is required." });
   }
 
-  const systemInstruction = `
-You are StadiumX AI, the state-of-the-art operant artificial intelligence powering StadiumX—an 80,000-seat futuristic mega-arena.
-You speak as a futuristic command intelligence: cold, highly articulate, secure, supportive, and perfectly optimized for real-time response.
-
-Active Stadium Telemetry Coordinates:
-- Attendance: 76,420 of 80,000 seats occupied (95.5% capacity).
-- Ambient Atmosphere: Dome cover: RETRACTED (Roof Open). Target temperature: 72°F. Humidity: 45%. Wind: North 4mph.
-- Access Grid: Gates A, B, D, F are operating within NOMINAL parameters (latency 2-4 mins). Gate C is experiencing severe ped bottlenecking.
-- Parking Matrices: North Lot is AT CAPACITY (98.2%). South Garage is STABLE (82.1%). VIP East is SECURED (91.0%). West Express has HIGH AVAILABILITY (40.5%).
-- Active Incidents under control:
-  1. Concourse level 2, Section 214: Minor floor slickness. Hazard signs erected, sweep droids active. (Severity: Low)
-  2. Gate C Turnstiles: Sensor drift has locked 2 entry lanes. Technicians dispatched. (Severity: Medium)
-${activeOperations.evacuationLock ? "- ALERT: STADIUM-WIDE EVACUATION DRILL IS CURRENTLY INITIATED. ALL SIGNAGE SHOWING FLUID WAYFINDING REDIRECTS." : ""}
-
-Core Response Directives:
-1. Always remain in character as the StadiumX Core Operating OS. Use elegant technical formatting.
-2. Formulate highly actionable responses. Recommend real-time solutions, emergency rerouting, wayfinding instructions, and operations priorities.
-3. Keep responses structured with scannable headers, precise metrics, and bullet points. Use valid markdown format.
-  `;
+  const systemInstruction = buildSystemInstruction(telemetry);
 
   // Fallback operational guidance when GEMINI_API_KEY is not defined
   if (!aiClient) {
-    // Create a rich context-aware simulation response
     const lowercaseMsg = message.toLowerCase();
     let reply = "";
+    const attendance = telemetry?.attendance ?? 76420;
+    const gateLatencies = telemetry?.gateLatencies ?? { A: 2.1, B: 3.5, C: 6.5, D: 1.8, E: 2.4, F: 4.0 };
+    const parking = telemetry?.parkingStatus ?? {};
+    const evacActive = telemetry?.evacuationLock ?? false;
 
     if (lowercaseMsg.includes("evac") || lowercaseMsg.includes("emergency") || lowercaseMsg.includes("danger") || lowercaseMsg.includes("fire")) {
       reply = `### 🚨 StadiumX AI Security Protocol Alert
-Stadium state is under **Operational Vigilance** status.
-* **Global Evacuation State**: ${activeOperations.evacuationLock ? "ACTIVE (SIMULATION)" : "INACTIVE / NOMINAL"}.
-* **Rerouting Directives**: Gate C bottlenecks mean personnel should redirect egress crowds to Gates D and B.
-* **Response Team Matrix**: Tactical squads are on standby. Level 2 Concourse slip incident has team onsite.
+Stadium state is under **Operational Emergency** status.
 
-How would you like to update the stadium matrices or dispatch additional responders?`;
+* **Global Evacuation State**: ${evacActive ? "ACTIVE (SIMULATION)" : "INACTIVE / NOMINAL"}.
+* **Rerouting Directives**: Gate C is experiencing higher latencies (${gateLatencies.C ?? 6.5} mins). Egress crowds are diverted through **Gate A** and **Gate D** for rapid clearing.
+* **Response Team Matrix**: Active droids are monitoring pathways.
+
+*Command directive: Keep movement synchronized and proceed to nearest green wayfinding escape panels.*`;
     } else if (lowercaseMsg.includes("parking") || lowercaseMsg.includes("car") || lowercaseMsg.includes("lot")) {
+      const westPct = parking.westExpress ? ((parking.westExpress.filled / parking.westExpress.capacity) * 100).toFixed(1) : "40.5";
+      const northPct = parking.northLot ? ((parking.northLot.filled / parking.northLot.capacity) * 100).toFixed(1) : "98.2";
       reply = `### 🚗 Parking Matrix Analysis
-* **North Lot**: **98.2% Capacity** (Critical Bottleneck). Display signals updated to: *REDIRECT TO WEST EXPRESS*.
-* **South Garage**: **82.1% Capacity** (Nominal). High turnover.
-* **West Express**: **40.5% Capacity** (Optimal Landing Zone). 
-* **VIP East Zone**: **91.0% Capacity** (Secured).
+* **North Lot**: **${northPct}% filled** (Critical Bottleneck). Display signals updated to: *REDIRECT TO WEST EXPRESS*.
+* **West Express**: **${westPct}% filled** (Optimal Landing Zone). High vacancy.
+* **South Garage**: Nominally functional.
 
-*Operational Action*: Recommending dynamic variable message highway signage redirecting incoming westbound traffic to **West Express Parking** via Route 5.`;
-    } else if (lowercaseMsg.includes("map") || lowercaseMsg.includes("locate") || lowercaseMsg.includes("view") || lowercaseMsg.includes("navigation")) {
+*Operational Action*: Recommending dynamic variable message highway signage redirecting incoming westbound traffic to **West Express Parking** immediately.`;
+    } else if (lowercaseMsg.includes("food") || lowercaseMsg.includes("eat") || lowercaseMsg.includes("stall") || lowercaseMsg.includes("burger") || lowercaseMsg.includes("grill") || lowercaseMsg.includes("dine") || lowercaseMsg.includes("snack") || lowercaseMsg.includes("concession")) {
+      reply = `### 🍔 Food & Concession Matrix Recommendations
+Based on live crowd density parameters, I recommend:
+* **Noodle Nexus** (Sector 115): **LOW queue density**. Serve times under 2 minutes. Features gourmet synthetic ramen bowls.
+* **Slick-Slice Pizza** (Section 301): Small queues (3 mins wait). Excellent prompt checkout.
+* **Mega-Bite Burgers** (Sector 108): Currently **HIGH bottleneck risk** (wait ~12 mins). Suggest delaying access.`;
+    } else if (lowercaseMsg.includes("map") || lowercaseMsg.includes("locate") || lowercaseMsg.includes("view") || lowercaseMsg.includes("navigation") || lowercaseMsg.includes("route")) {
       reply = `### 🗺️ StadiumX Navigational Matrix Enabled
 I am tracking real-time crowd densities for all zones.
-- **Zone 1 (Main Stage & Field Level)**: Crowds are concentrated heavily near Stage Access 3.
-- **Zone 2 (Lower Bowl / Sections 100-199)**: Smooth navigation flows except Gate C lobby.
-- **Zone 3 (Upper Deck)**: Nominal. Latency stands at 90 seconds to concessions.
-
-I have projected the high-density crowds on the live Operations Map. You can view bottlenecks in real-time.`;
+* **Gate C Access Corridor**: High bottleneck latency. Avoid.
+* **Gate A Access Corridor**: **NOMINAL** wait times (${gateLatencies.A ?? 2.1} mins). Recommend tracking this entry path.
+* **Upper Level Bowl**: Open flow patterns. Wait times are less than 90 seconds.`;
     } else {
       reply = `### 🌐 StadiumX AI Core Log
-Access established. I am monitoring the mega-arena. Current telemetry shows **76,420 fans** inside.
+Access established. I am monitoring the mega-arena. Current telemetry shows **${attendance.toLocaleString()} fans** inside.
 
-* **Crowd Flow**: Balanced. Pedestrian pressure at Gate C turnstiles is being resolved.
-* **Incident Alert**: Hazard cleanup active in Section 214.
-* **Roof Status**: Dome retracted (Open). Perfect meteorological indices.
+* **Crowd Flow**: Overall state is stable.
+* **Gate Latencies**: Gate C wait is at **${gateLatencies.C ?? 6.5} mins**, while Gate A is at **${gateLatencies.A ?? 2.1} mins**. Rerouting is advised.
+* **Active Alarms**: Tracking ${telemetry?.activeIncidents?.length ?? 0} active incident vectors.
 
 Provide command queries regarding navigation, parking capacities, automated emergency systems, or dispatch grids. I am standing by.`;
     }
 
-    // Add brief indicator that it's simulated
     reply += `\n\n*(Telemetry Simulation Mode - Active)*`;
     return res.json({ text: reply });
   }

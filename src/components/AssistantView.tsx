@@ -12,6 +12,7 @@ import {
   FileText,
   Bookmark
 } from "lucide-react";
+import { TelemetryData } from "../types";
 
 interface Message {
   id: string;
@@ -20,12 +21,23 @@ interface Message {
   timestamp: string;
 }
 
-export default function AssistantView() {
+interface AssistantViewProps {
+  telemetry: TelemetryData;
+}
+
+export default function AssistantView({ telemetry }: AssistantViewProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
       sender: "stadiumx",
-      text: "### 🌐 StadiumX AI Core Log\nAccess established. I am monitoring the mega-arena. Current telemetry shows **76,420 fans** inside.\n\n* **Crowd Flow**: Balanced. Pedestrian pressure at Gate C turnstiles is being resolved.\n* **Incident Alert**: Hazard cleanup active in Section 214.\n* **Roof Status**: Dome retracted (Open). Perfect meteorological indices.\n\nProvide command queries regarding navigation, parking capacities, automated emergency systems, or dispatch grids. I am standing by.",
+      text: `### 🌐 StadiumX AI Core Log
+Access established. I am monitoring the mega-arena. Current telemetry shows **${telemetry?.attendance?.toLocaleString() ?? "76,420"} fans** inside.
+
+* **Crowd Flow**: Overall state is nominal. Gate C currently tracking wait times at **${telemetry?.gateLatencies?.C ?? "6.5"} minutes**.
+* **Incident Alert**: Active monitoring grid tracking **${telemetry?.activeIncidents?.length ?? 0} incidents**.
+* **Global Evacuation State**: **${telemetry?.evacuationLock ? "ACTIVE (SIMULATION)" : "INACTIVE / NOMINAL"}**.
+
+Provide command queries regarding navigation, parking capacities, food stalls recommendations, emergency guidance, or dispatch grids. I am standing by.`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
   ]);
@@ -34,9 +46,10 @@ export default function AssistantView() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const suggestionPrompts = [
-    { title: "Generate PA Script", query: "Draft a high-priority evacuation PA system voice script for Gate C bottlenecks.", icon: ShieldAlert },
-    { title: "Parking Distribution", query: "What is the parking matrix right now? Recommend routing strategies.", icon: Compass },
-    { title: "Sector 214 Safety", query: "Draft an action summary for the Concourse Level 2 Sect 214 fluid spill hazard.", icon: FileText },
+    { title: "Identify Crowded Bottlenecks", query: "Do a full live crowd congestion analysis and propose alternate routing plans.", icon: Compass },
+    { title: "Best Dining Stalls", query: "Which food stalls have the lowest wait times right now? Recommend dishes and locations.", icon: Sparkles },
+    { title: "Parking Guidance", query: "What is the parking lot distribution right now? Where should incoming fans park?", icon: Compass },
+    { title: "Active Incidents Summary", query: "Give me an operational digest of any active incidents and emergency safety status.", icon: ShieldAlert },
   ];
 
   useEffect(() => {
@@ -62,7 +75,7 @@ export default function AssistantView() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: textToSend }),
+        body: JSON.stringify({ message: textToSend, telemetry }),
       });
       const data = await response.json();
 
@@ -80,7 +93,7 @@ export default function AssistantView() {
       const fallbackMsg: Message = {
         id: `bot-fallback-${Date.now()}`,
         sender: "stadiumx",
-        text: `### ⚠️ Connection Diagnostic Drift\nDirect link to physical cloud core disrupted. Simulating localized operational directive:\n\n* **Primary Suggestion**: Gate C bottlenecks resolved via alternate door activations.\n* **Local Action**: Standby for standard telemetry telemetry update.\n\n*Command terminal standing by offline.*`,
+        text: `### ⚠️ Connection Diagnostic Drift\nDirect link to physical cloud core disrupted. Simulating localized operational directive:\n\n* **Primary Suggestion**: Gate C bottlenecks resolved via alternate door activations.\n* **Local Action**: Standby for standard telemetry update.\n\n*Command terminal standing by offline.*`,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, fallbackMsg]);
